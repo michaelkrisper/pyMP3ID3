@@ -18,11 +18,11 @@ def unsync(iterable):
 
 class ID3v2Flags:
     def __init__(self, flags):
-        self.data = flags
-        self.unsynchronisation = bool(flags & 1 << 7)
-        self.extended_header = bool(flags & 1 << 6)
-        self.experimental_header = bool(flags & 1 << 5)
-        self.footer_present = bool(flags & 1 << 4)
+        self._data = flags
+        self.unsynchronisation = bool(self._data & 1 << 7)
+        self.extended_header = bool(self._data & 1 << 6)
+        self.experimental_header = bool(self._data & 1 << 5)
+        self.footer_present = bool(self._data & 1 << 4)
 
     def __str__(self):
         return "{0.unsynchronisation}, {0.extended_header}, {0.experimental_header}, {0.footer_present}".format(self)
@@ -94,36 +94,39 @@ class ID3v2Header:
     Version = namedtuple("Version", "major minor")
 
     def __init__(self, header):
-        self.data = header
-        self.file_identifier = header[:3]
-        self.version = ID3v2Header.Version(header[3], header[4])
-        flags = header[5]
-        self.flags = ID3v2Flags(header[5])
-        self.size = unsync(header[6:10])
+        self._data = header
+
+        self.file_identifier = self._data[:3]
+        self.version = ID3v2Header.Version(self._data[3], self._data[4])
+        flags = self._data[5]
+        self.flags = ID3v2Flags(self._data[5])
+        self.size = unsync(self._data[6:10])
 
     def __str__(self):
         return "{0.file_identifier}, {0.version}, {0.flags}, {0.size}".format(self)
 
     def __repr__(self):
-        return str(self.data)
+        return str(self._data)
 
 
 class ID3v2ExtendedFlags:
     def __init__(self, flags):
-        self.data = flags
-        self.tag_is_update = flags & 1 << 7
-        self.crc_data_present = flags & 1 << 6
-        self.tag_restriction = flags & 1 << 5
+        self._data = flags
+
+        self.tag_is_update = bool(self._data & 1 << 7)
+        self.crc_data_present = bool(self._data & 1 << 6)
+        self.tag_restriction = bool(self._data & 1 << 5)
 
 
 class ID3v2ExtendedHeader:
     def __init__(self, extended_header, size):
-        self.data = extended_header
+        self._data = extended_header
         self.size = size
 
-        self.number_flag_bytes = extended_header[0]
+        f = io.BytesIO(self._data)
 
-        self.extended_flags = ID3v2ExtendedFlags(extended_header[1])
+        self.number_flag_bytes = f.read(1)
+        self.extended_flags = ID3v2ExtendedFlags(f.read(1))
         if self.extended_flags.tag_is_update:
             f.seek(1, 1)
 
@@ -133,7 +136,7 @@ class ID3v2ExtendedHeader:
 
         if self.extended_flags.tag_restriction:
             f.seek(1, 1)
-            self.restrictions = f.read()[0]
+            self.restrictions = f.read(1)
 
     def __str__(self):
         return "{0.tag_is_update}, {0.crc_data_present}, {0.tag_restriction}".format(self)
@@ -160,7 +163,6 @@ class ID3Tag:
     def __init__(self, filename=None):
         self.filename = filename
         self.header = None
-        self.tag = None
 
         self.extended_header = None
         self.frames = {}
@@ -173,11 +175,9 @@ class ID3Tag:
         self.crc_data = 0
         self.restrictions = 0
 
-        with open(self.filename, "rb") as f:
-            self.header = ID3v2Header(f.read(10))
-            self.tag = f.read(self.header.size)
-
-        f = io.BytesIO(self.tag)
+        with open(self.filename, "rb") as f_in:
+            self.header = ID3v2Header(f_in.read(10))
+            f = io.BytesIO(f_in.read(self.header.size))
 
         if self.header.flags.extended_header:
             size = unsync(f.read(4))
@@ -211,10 +211,6 @@ class ID3Tag:
             return "{0[TPE1]} - {0[TIT2]}".format(self.frames)
         else:
             return "{0.filename}".format(self)
-
-    def __repr__(self):
-        return "{}".format(self.tag)
-
 
 def main():
     for dirpath, dirnames, filenames in os.walk("/Users/michi/Music"):
