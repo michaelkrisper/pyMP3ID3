@@ -1,14 +1,31 @@
 #!/usr/bin/python3
 # coding=utf-8
 """
-
+Script for reading ID3v2 Tags in MP3-Files.
 """
 from collections import namedtuple
+import io
 import os
 
 __author__ = "Michael Krisper"
 __email__ = "michael.krisper@gmail.com"
 __date__ = "2014-11-09"
+
+
+def unsync(iterable):
+    return sum(item << (7 * (len(iterable) - i)) for i, item in enumerate(iterable, start=1))
+
+
+class ID3v2Flags:
+    def __init__(self, flags):
+        self.data = flags
+        self.unsynchronisation = bool(flags & 1 << 7)
+        self.extended_header = bool(flags & 1 << 6)
+        self.experimental_header = bool(flags & 1 << 5)
+        self.footer_present = bool(flags & 1 << 4)
+
+    def __str__(self):
+        return "{0.unsynchronisation}, {0.extended_header}, {0.experimental_header}, {0.footer_present}".format(self)
 
 
 class ID3v2Header:
@@ -75,18 +92,51 @@ class ID3v2Header:
     """
 
     Version = namedtuple("Version", "major minor")
-    Flags = namedtuple("Flags", "unsynchronisation extended_header experimental_header footer_present")
 
     def __init__(self, header):
+        self.data = header
         self.file_identifier = header[:3]
         self.version = ID3v2Header.Version(header[3], header[4])
         flags = header[5]
-        self.flags = ID3v2Header.Flags(bool(flags & 1 << 7), bool(flags & 1 << 6), bool(flags & 1 << 5),
-                                       bool(flags & 1 << 4))
-        self.size = int.from_bytes(header[6:], byteorder="big")
+        self.flags = ID3v2Flags(header[5])
+        self.size = unsync(header[6:10])
 
     def __str__(self):
         return "{0.file_identifier}, {0.version}, {0.flags}, {0.size}".format(self)
+
+    def __repr__(self):
+        return str(self.data)
+
+
+class ID3v2ExtendedFlags:
+    def __init__(self, flags):
+        self.data = flags
+        self.tag_is_update = flags & 1 << 7
+        self.crc_data_present = flags & 1 << 6
+        self.tag_restriction = flags & 1 << 5
+
+
+class ID3v2ExtendedHeader:
+    def __init__(self, extended_header, size):
+        self.data = extended_header
+        self.size = size
+
+        self.number_flag_bytes = extended_header[0]
+
+        self.extended_flags = ID3v2ExtendedFlags(extended_header[1])
+        if self.extended_flags.tag_is_update:
+            f.seek(1, 1)
+
+        if self.extended_flags.crc_data_present:
+            f.seek(1, 1)
+            self.crc_data = unsync(f.read(5))
+
+        if self.extended_flags.tag_restriction:
+            f.seek(1, 1)
+            self.restrictions = f.read()[0]
+
+    def __str__(self):
+        return "{0.tag_is_update}, {0.crc_data_present}, {0.tag_restriction}".format(self)
 
 
 class ID3Tag:
@@ -108,11 +158,12 @@ class ID3Tag:
     """
 
     def __init__(self, filename=None):
+        self.filename = filename
         self.header = None
         self.tag = None
 
         self.extended_header = None
-        self.frames = None
+        self.frames = {}
         self.padding = None
         self.footer = None
 
@@ -121,68 +172,48 @@ class ID3Tag:
         self.extended_flags = 0
         self.crc_data = 0
         self.restrictions = 0
-        if filename:
-            self.from_file(filename)
 
-
-    def from_file(self, filename):
-        with open(filename, "rb") as f:
+        with open(self.filename, "rb") as f:
             self.header = ID3v2Header(f.read(10))
-            return
+            self.tag = f.read(self.header.size)
 
-            self.tag = f.read(self.header_size)
+        f = io.BytesIO(self.tag)
 
-            if self.flags_extended_header:
-                self.extended_header_size = int.from_bytes(f.read(4), byteorder="big")
-                self.extended_header = f.read(self.extended_header_size)
+        if self.header.flags.extended_header:
+            size = unsync(f.read(4))
+            self.extended_header = ID3v2ExtendedHeader(f.read(self.extended_header_size), size)
 
-                self.number_flag_bytes = f.read()
-                self.extended_flags = int.from_bytes(f.read(), byteorder="big")
-                if self.ex_flags_tag_is_update:
-                    f.seek(1, 1)
-
-                if self.ex_flags_crc_data_present:
-                    f.seek(1, 1)
-                    self.crc_data = int.from_bytes(f.read(5), byteorder="big")
-
-                if self.ex_flags_tag_restrictions:
-                    f.seek(1, 1)
-                    self.restrictions = int.from_bytes(f.read(), byteorder="big")
+        frame_id = f.read(4)
+        while frame_id and frame_id != b"\x00\x00\x00\x00":
+            size = unsync(f.read(4))
+            flags = f.read(2)
+            content = f.read(size)
+            if frame_id in [b"TIT2", b"TPE1"]:
+                encoding, content = content[0], content[1:]
+                try:
+                    if encoding == 0:
+                        content = content.decode("ISO-8859-1")
+                    elif encoding == 1:
+                        content = content.decode("utf-16le")
+                    elif encoding == 2:
+                        content = content.decode("utf-16")
+                    elif encoding == 3:
+                        content = content.decode("utf-8")
+                except UnicodeDecodeError as e:
+                    print("{}: {}".format(frame_id, e))
+                self.frames[frame_id.decode("ISO-8859-1")] = content
 
             frame_id = f.read(4)
-            frames = {}
-            while frame_id != b"\x00\x00\x00\x00" and frame_id != b"'+\x99U" and frame_id[0] != 0xFF:
-                size = int.from_bytes(f.read(4), byteorder="big")
-                flags = f.read(2)
-                content = f.read(size)
-                if content[0] == 3:
-                    content = content[1:-1].decode()
-                elif content[0] == 0:
-                    content = content[1:-1].decode("ISO-8859-1")
-                elif content[0] == 1:
-                    content = content[1:-2].decode("utf-16le")
-                elif content[0] == 2:
-                    content = content[1:-2].decode("utf-16")
-                frames[frame_id.decode()] = content
-                frame_id = f.read(4)
-            try:
-                print("{TPE1} - {TIT2}".format(**frames))
-            except KeyError as e:
-                print(e)
-                print(frames)
 
 
-    @property
-    def ex_flags_tag_is_update(self):
-        return self.extended_flags & 1 << 7
+    def __str__(self):
+        if "TPE1" in self.frames and "TIT2" in self.frames:
+            return "{0[TPE1]} - {0[TIT2]}".format(self.frames)
+        else:
+            return "{0.filename}".format(self)
 
-    @property
-    def ex_flags_crc_data_present(self):
-        return self.extended_flags & 1 << 6
-
-    @property
-    def ex_flags_tag_restrictions(self):
-        return self.extended_flags & 1 << 5
+    def __repr__(self):
+        return "{}".format(self.tag)
 
 
 def main():
@@ -191,7 +222,7 @@ def main():
             if os.path.splitext(filename)[1] == ".mp3":
                 fullpath = os.path.join(dirpath, filename)
                 id3 = ID3Tag(fullpath)
-                print(id3.header)
+                print(id3)
 
 
 if __name__ == "__main__":
