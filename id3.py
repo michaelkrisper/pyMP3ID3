@@ -41,18 +41,20 @@ class ID3v2Header:
 
     +-----------------+-------------------------+
     | file_identifier | ID3                     |
+    | 3 Bytes         |                         |
     +-----------------+-------------------------+
     | version         | 0xAA 0xBB               |
-    |                 |  AA: major              |
-    |                 |  BB: minor              |
+    | 2 Bytes         |  AA: major              |
+    |                 |  BB: revision           |
     +-----------------+-------------------------+
     | flags           | 0bABCD0000              |
-    |                 |  A: unsynchronisation   |
+    | 1 Byte          |  A: unsynchronisation   |
     |                 |  B: extended_header     |
     |                 |  C: experimental_header |
     |                 |  D: footer_present      |
     +-----------------+-------------------------+
     | size            | 0xAA 0xBB 0xCC 0xDD     |
+    | 4 Bytes         | with prefix %0xxxxxxx   |
     +-----------------+-------------------------+
 
     The first three bytes of the tag are always "ID3", to indicate that
@@ -91,7 +93,7 @@ class ID3v2Header:
     ('total size' - 10) bytes.
     """
 
-    Version = namedtuple("Version", "major minor")
+    Version = namedtuple("Version", "major revision")
 
     def __init__(self, header):
         self._data = header
