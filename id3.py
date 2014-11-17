@@ -3,7 +3,7 @@
 """
 Script for reading ID3v2 Tags in MP3-Files.
 """
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 import io
 import os
 
@@ -167,7 +167,7 @@ class ID3Tag:
         self.header = None
 
         self.extended_header = None
-        self.frames = {}
+        self.frames = defaultdict(str)
         self.padding = None
         self.footer = None
 
@@ -213,6 +213,18 @@ class ID3Tag:
             return "{0[TPE1]} - {0[TIT2]}".format(self.frames)
         else:
             return "{0.filename}".format(self)
+
+    @property
+    def artist(self):
+        return self.frames["TPE1"]
+
+    @property
+    def title(self):
+        return self.frames["TIT2"]
+
+    @property
+    def album(self):
+        return self.frames["TPE2"]
 
 def main():
     for dirpath, dirnames, filenames in os.walk("/Users/michi/Music"):
