@@ -13,11 +13,25 @@ __date__ = "2014-11-09"
 
 
 def unsync(iterable):
+    """
+    Converts a syncsafe integer to a regular integer.
+    ID3v2 uses syncsafe integers for sizes to avoid conflicts with MPEG audio sync signals.
+    In a syncsafe integer, the most significant bit of each byte is always zero.
+    """
     return sum(item << (7 * (len(iterable) - i)) for i, item in enumerate(iterable, start=1))
 
 
 class ID3v2Flags:
+    """
+    Parses and holds the flags from the ID3v2 header.
+    """
     def __init__(self, flags):
+        """
+        Initializes the flags from a single byte.
+
+        Args:
+            flags (int): The byte containing the flags.
+        """
         self._data = flags
         self.unsynchronisation = bool(self._data & 1 << 7)
         self.extended_header = bool(self._data & 1 << 6)
@@ -25,6 +39,9 @@ class ID3v2Flags:
         self.footer_present = bool(self._data & 1 << 4)
 
     def __str__(self):
+        """
+        Returns a string representation of the flags.
+        """
         return "{0.unsynchronisation}, {0.extended_header}, {0.experimental_header}, {0.footer_present}".format(self)
 
 
@@ -96,23 +113,43 @@ class ID3v2Header:
     Version = namedtuple("Version", "major revision")
 
     def __init__(self, header):
+        """
+        Initializes the header from a 10-byte string.
+
+        Args:
+            header (bytes): The 10-byte ID3v2 header.
+        """
         self._data = header
 
         self.file_identifier = self._data[:3]
         self.version = ID3v2Header.Version(self._data[3], self._data[4])
-        flags = self._data[5]
         self.flags = ID3v2Flags(self._data[5])
         self.size = unsync(self._data[6:10])
 
     def __str__(self):
+        """
+        Returns a string representation of the header.
+        """
         return "{0.file_identifier}, {0.version}, {0.flags}, {0.size}".format(self)
 
     def __repr__(self):
+        """
+        Returns a string representation of the raw header data.
+        """
         return str(self._data)
 
 
 class ID3v2ExtendedFlags:
+    """
+    Parses and holds the flags from the ID3v2 extended header.
+    """
     def __init__(self, flags):
+        """
+        Initializes the extended flags from a single byte.
+
+        Args:
+            flags (int): The byte containing the extended flags.
+        """
         self._data = flags
 
         self.tag_is_update = bool(self._data & 1 << 7)
@@ -121,7 +158,17 @@ class ID3v2ExtendedFlags:
 
 
 class ID3v2ExtendedHeader:
+    """
+    Parses and holds the data from the ID3v2 extended header.
+    """
     def __init__(self, extended_header, size):
+        """
+        Initializes the extended header from a byte string.
+
+        Args:
+            extended_header (bytes): The byte string containing the extended header.
+            size (int): The size of the extended header.
+        """
         self._data = extended_header
         self.size = size
 
@@ -141,6 +188,9 @@ class ID3v2ExtendedHeader:
             self.restrictions = f.read(1)
 
     def __str__(self):
+        """
+        Returns a string representation of the extended flags.
+        """
         return "{0.tag_is_update}, {0.crc_data_present}, {0.tag_restriction}".format(self)
 
 
@@ -163,6 +213,12 @@ class ID3Tag:
     """
 
     def __init__(self, filename=None):
+        """
+        Initializes the ID3Tag object by reading the tag from the given file.
+
+        Args:
+            filename (str): The path to the MP3 file.
+        """
         self.filename = filename
         self.header = None
 
@@ -177,22 +233,30 @@ class ID3Tag:
         self.crc_data = 0
         self.restrictions = 0
 
+        # Open the file in binary mode and read the header
         with open(self.filename, "rb") as f_in:
             self.header = ID3v2Header(f_in.read(10))
+            # Read the rest of the tag into a BytesIO object for easier parsing
             f = io.BytesIO(f_in.read(self.header.size))
 
+        # If an extended header is present, parse it
         if self.header.flags.extended_header:
             size = unsync(f.read(4))
             self.extended_header = ID3v2ExtendedHeader(f.read(self.extended_header_size), size)
 
+        # Loop through the frames until we reach the padding
         frame_id = f.read(4)
         while frame_id and frame_id != b"\x00\x00\x00\x00":
             size = unsync(f.read(4))
             flags = f.read(2)
             content = f.read(size)
+
+            # For now, we only parse TIT2 (Title) and TPE1 (Artist) frames
             if frame_id in [b"TIT2", b"TPE1"]:
+                # The first byte of the content is the encoding
                 encoding, content = content[0], content[1:]
                 try:
+                    # Decode the content based on the encoding byte
                     if encoding == 0:
                         content = content.decode("ISO-8859-1")
                     elif encoding == 1:
@@ -205,10 +269,15 @@ class ID3Tag:
                     print("{}: {}".format(frame_id, e))
                 self.frames[frame_id.decode("ISO-8859-1")] = content
 
+            # Read the next frame ID
             frame_id = f.read(4)
 
 
     def __str__(self):
+        """
+        Returns a string representation of the tag, typically "Artist - Title".
+        If artist or title is missing, it returns the filename.
+        """
         if "TPE1" in self.frames and "TIT2" in self.frames:
             return "{0[TPE1]} - {0[TIT2]}".format(self.frames)
         else:
@@ -216,23 +285,42 @@ class ID3Tag:
 
     @property
     def artist(self):
+        """
+        Returns the artist of the song.
+        """
         return self.frames["TPE1"]
 
     @property
     def title(self):
+        """
+        Returns the title of the song.
+        """
         return self.frames["TIT2"]
 
     @property
     def album(self):
+        """
+        Returns the album of the song.
+        """
         return self.frames["TPE2"]
 
 def main():
-    for dirpath, dirnames, filenames in os.walk("/Users/michi/Music"):
+    """
+    A simple demonstration of the ID3Tag class.
+    It walks through a directory and prints the ID3 tags of all MP3 files.
+    Note: You need to change the path to a directory containing MP3 files.
+    """
+    # Change this path to a directory containing MP3 files
+    music_directory = "."
+    for dirpath, dirnames, filenames in os.walk(music_directory):
         for filename in filenames:
             if os.path.splitext(filename)[1] == ".mp3":
                 fullpath = os.path.join(dirpath, filename)
-                id3 = ID3Tag(fullpath)
-                print(id3)
+                try:
+                    id3 = ID3Tag(fullpath)
+                    print(id3)
+                except Exception as e:
+                    print(f"Error reading {fullpath}: {e}")
 
 
 if __name__ == "__main__":
