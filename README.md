@@ -1,5 +1,8 @@
 # ID3 Tag Editor
 
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 This project is a simple ID3 tag editor for MP3 files, written in Python. It consists of a core library for reading ID3 tag data and a graphical user interface (GUI) for viewing and editing the tags.
 
 ## Components
@@ -30,3 +33,26 @@ This will open a window where you can select a directory containing your MP3 fil
 ## ID3 Standard
 
 The text files included in the repository (`id3v2.4.0-*.txt`) contain detailed information about the ID3v2.4.0 standard, which this application is based on. They describe the structure of ID3 tags, the different frames available, and the changes from previous versions.
+
+## Requirements
+
+- Python 3.9 or newer
+- PyQt5 — only for the GUI; `id3.py` works standalone
+
+## Project structure
+
+| File | Purpose |
+|---|---|
+| `id3.py` | ID3v2 parsing library, no third-party dependencies |
+| `id3_editor.py` | PyQt5 GUI to browse a directory and inspect tags |
+| `id3_editor.ui` | Qt Designer layout for the GUI |
+| `id3v2.4.0-*.txt` | Copies of the ID3v2.4 specification for reference |
+
+## Related
+
+A standalone PyQt5 demo built around the same editor UI lives in
+[pyGUI_qt](https://github.com/michaelkrisper/pyGUI_qt).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
